@@ -11,10 +11,9 @@ export async function readToken(path = process.env.GITHUB_TOKEN_FILE ?? defaultT
   let token: string;
   try {
     token = (await readFile(path, "utf8")).trim();
-  } catch (error) {
-    throw new PolicyError("unable to read the configured GitHub token file", "TOKEN_READ_FAILED", {
-      cause: error
-    });
+  } catch {
+    // The underlying error names the path; keep it out of anything that may be printed.
+    throw new PolicyError("unable to read the configured GitHub token file", "TOKEN_READ_FAILED");
   }
   if (token === "") {
     throw new PolicyError("the configured GitHub token file is empty", "EMPTY_TOKEN");
