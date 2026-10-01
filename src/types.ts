@@ -1,5 +1,7 @@
 export type MergeMethod = "merge" | "squash" | "rebase";
 export type Enforcement = "active" | "evaluate" | "disabled";
+export type BypassActorType = "RepositoryRole" | "Team" | "Integration" | "OrganizationAdmin";
+export type BypassMode = "always" | "pull_request";
 
 export interface ContractRules {
   requirePullRequest: boolean;
@@ -12,16 +14,18 @@ export interface ContractRules {
   blockDeletions: boolean;
 }
 
+export interface ContractBypassActor {
+  actorId: number;
+  actorType: BypassActorType;
+  bypassMode: BypassMode;
+}
+
 export interface ContractRuleset {
   name: string;
   target: "branch";
   enforcement: Enforcement;
   branches: string[];
-  bypassActors: {
-    actorId: number;
-    actorType: "RepositoryRole" | "Team" | "Integration" | "OrganizationAdmin";
-    bypassMode: "always" | "pull_request";
-  }[];
+  bypassActors: ContractBypassActor[];
   rules: ContractRules;
 }
 
@@ -32,6 +36,8 @@ export interface GovernanceContract {
   mergeMethod: MergeMethod;
   rulesets: ContractRuleset[];
 }
+
+export type RulesetRule = Record<string, unknown> & { type: string };
 
 export interface GitHubRuleset {
   id: number;
@@ -44,30 +50,45 @@ export interface GitHubRuleset {
       exclude: string[];
     };
   };
-  rules: (Record<string, unknown> & { type: string })[];
+  rules: RulesetRule[];
   bypass_actors: Record<string, unknown>[];
+}
+
+/** A ruleset request body: everything GitHub accepts on create/update, without the id. */
+export type RulesetBody = Omit<GitHubRuleset, "id">;
+
+export interface RulesetSummary {
+  id: number;
+  name: string;
 }
 
 export interface RepositoryState {
   owner: string;
   repository: string;
   defaultBranch: string;
+  /** Whether the default branch also carries classic (non-ruleset) branch protection. */
+  defaultBranchClassicProtection: boolean;
   rulesets: GitHubRuleset[];
   workflowChecks: string[];
 }
 
 export type PlanAction =
-  | { kind: "create"; name: string; desired: GitHubRuleset }
-  | { kind: "update"; name: string; rulesetId: number; desired: GitHubRuleset }
-  | { kind: "delete"; name: string; rulesetId: number };
+  | { kind: "create"; name: string; desired: RulesetBody }
+  | { kind: "update"; name: string; rulesetId: number; changes: string[]; desired: RulesetBody }
+  | { kind: "delete"; name: string; rulesetId: number; reason: "obsolete" | "duplicate" };
 
 export interface GovernancePlan {
   schemaVersion: 1;
   repository: string;
   defaultBranch: string;
-  generatedAt?: string;
+  defaultBranchClassicProtection: boolean;
+  managedNamePrefix: string;
+  requiredStatusChecks: string[];
+  configuredWorkflowChecks: string[];
   actions: PlanAction[];
   preservedUnmanagedRulesets: string[];
+  warnings: string[];
+  blockers: string[];
 }
 
 export interface RecoverySnapshot {
@@ -78,14 +99,12 @@ export interface RecoverySnapshot {
   managedRulesets: GitHubRuleset[];
 }
 
+export interface TransportResponse<T> {
+  status: number;
+  headers: Record<string, string>;
+  body: T;
+}
+
 export interface GitHubTransport {
-  request<T>(
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<{
-    status: number;
-    headers: Record<string, string>;
-    body: T;
-  }>;
+  request<T>(method: string, path: string, body?: unknown): Promise<TransportResponse<T>>;
 }

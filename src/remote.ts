@@ -6,21 +6,33 @@ export interface RepositoryCoordinates {
   repository: string;
 }
 
+const OWNER = "([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))";
+const REPOSITORY = "([A-Za-z0-9._-]{1,100}?)";
+const REMOTE_FORMS = [
+  new RegExp(`^https://github\\.com/${OWNER}/${REPOSITORY}(?:\\.git)?/?$`),
+  new RegExp(`^git@github\\.com:${OWNER}/${REPOSITORY}(?:\\.git)?$`),
+  new RegExp(`^ssh://git@github\\.com(?::22)?/${OWNER}/${REPOSITORY}(?:\\.git)?$`)
+];
+
+/**
+ * Resolves owner and repository from a credential-free GitHub remote. HTTPS remotes carrying any
+ * user information are rejected, and the remote itself is never echoed in the error because it
+ * may contain credentials.
+ */
 export function parseGitHubRemote(remote: string): RepositoryCoordinates {
   const value = remote.trim();
-  const https = /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/.exec(value);
-  if (https) {
-    const [, owner, repository] = https;
-    if (owner && repository) return { owner, repository };
+  for (const form of REMOTE_FORMS) {
+    const match = form.exec(value);
+    const owner = match?.[1];
+    const repository = match?.[2];
+    if (owner && repository && repository !== "." && repository !== "..") {
+      return { owner, repository };
+    }
   }
-
-  const ssh = /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/.exec(value);
-  if (ssh) {
-    const [, owner, repository] = ssh;
-    if (owner && repository) return { owner, repository };
-  }
-
-  throw new PolicyError("origin is not a supported GitHub remote", "INVALID_REMOTE");
+  throw new PolicyError(
+    "origin is not a supported credential-free GitHub remote (expected https://github.com/OWNER/REPO.git or an SSH form)",
+    "INVALID_REMOTE"
+  );
 }
 
 export function resolveRepositoryFromOrigin(cwd = process.cwd()): RepositoryCoordinates {
@@ -31,10 +43,8 @@ export function resolveRepositoryFromOrigin(cwd = process.cwd()): RepositoryCoor
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     });
-  } catch (error) {
-    throw new PolicyError("unable to resolve the origin remote", "MISSING_REMOTE", {
-      cause: error
-    });
+  } catch {
+    throw new PolicyError("unable to resolve the origin remote", "MISSING_REMOTE");
   }
   return parseGitHubRemote(origin);
 }
